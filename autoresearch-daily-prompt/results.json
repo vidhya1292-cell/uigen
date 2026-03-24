@@ -1,0 +1,49 @@
+{
+  "skill_name": "daily-reading-prompt",
+  "status": "running",
+  "current_experiment": 0,
+  "baseline_score": 53.3,
+  "best_score": 53.3,
+  "experiments": [
+    {
+      "id": 0,
+      "score": 16,
+      "max_score": 30,
+      "pass_rate": 53.3,
+      "status": "baseline",
+      "description": "original prompt — no changes"
+    }
+  ],
+  "eval_breakdown": [
+    {
+      "name": "Headline specificity",
+      "pass_count": 5,
+      "total": 5
+    },
+    {
+      "name": "Summary depth",
+      "pass_count": 1,
+      "total": 5
+    },
+    {
+      "name": "No banned words",
+      "pass_count": 4,
+      "total": 5
+    },
+    {
+      "name": "Deep Read is essay",
+      "pass_count": 2,
+      "total": 5
+    },
+    {
+      "name": "Company section has metrics",
+      "pass_count": 1,
+      "total": 5
+    },
+    {
+      "name": "Category boundaries",
+      "pass_count": 3,
+      "total": 5
+    }
+  ]
+}
