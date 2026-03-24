@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma'
+import { getReading, saveReading, getRecentUsedLinks } from '@/lib/store'
 import { fetchAllFeeds } from '@/lib/daily-reading/rss-fetcher'
 import { buildGenerationPrompt } from '@/lib/daily-reading/prompt'
 import { NewsCard } from '@/components/daily/NewsCard'
@@ -12,16 +12,16 @@ export const dynamic = 'force-dynamic'
 
 async function getOrGenerateContent(): Promise<DailyReadingContent | null> {
   const today = new Date().toISOString().split('T')[0]
-  const existing = await prisma.dailyReading.findUnique({ where: { date: today } })
+  const existing = getReading(today)
 
   if (existing) {
-    return JSON.parse(existing.content) as DailyReadingContent
+    return existing.content
   }
 
-  // Generate fresh
   try {
+    const excludeLinks = getRecentUsedLinks(14)
     const feeds = await fetchAllFeeds()
-    const prompt = buildGenerationPrompt(today, feeds)
+    const prompt = buildGenerationPrompt(today, feeds, excludeLinks)
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
     const message = await client.messages.create({
       model: 'claude-sonnet-4-6',
@@ -35,7 +35,18 @@ async function getOrGenerateContent(): Promise<DailyReadingContent | null> {
     const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/) ?? null
     const jsonStr = jsonMatch ? jsonMatch[1].trim() : rawText.trim()
     const content: DailyReadingContent = JSON.parse(jsonStr)
-    await prisma.dailyReading.create({ data: { date: today, content: JSON.stringify(content) } })
+
+    const usedLinks = [
+      ...content.whatsHappening.world.sources.map((s) => s.url),
+      ...content.whatsHappening.india.sources.map((s) => s.url),
+      ...content.whatsHappening.markets.sources.map((s) => s.url),
+      ...content.whatsHappening.ai.sources.map((s) => s.url),
+      content.deepRead.readLink,
+      ...content.startupOfDay.sources.map((s) => s.url),
+      ...content.publicCompanyOfDay.sources.map((s) => s.url),
+    ].filter(Boolean)
+
+    saveReading(today, content, usedLinks)
     return content
   } catch {
     return null
