@@ -1,26 +1,30 @@
-import { Client } from '@notionhq/client'
 import type { DailyReadingContent } from './types'
 
-const DATABASE_ID = 'c7e00ea7e0bc4a8c805e1b17a00ff405'
-
-function getClient() {
-  const token = process.env.NOTION_API_KEY
-  if (!token) throw new Error('NOTION_API_KEY not set')
-  return new Client({ auth: token })
-}
-
-function fmt(item: { headline: string; summary: string }) {
-  return `${item.headline}\n\n${item.summary}`
-}
-
 export async function syncToNotion(content: DailyReadingContent): Promise<void> {
-  const notion = getClient()
+  const token = process.env.NOTION_API_KEY
+  if (!token) return
+
+  const DATABASE_ID = 'c7e00ea7e0bc4a8c805e1b17a00ff405'
+
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    'Notion-Version': '2022-06-28',
+    'Content-Type': 'application/json',
+  }
+
+  const fmt = (item: { headline: string; summary: string }) =>
+    `${item.headline}\n\n${item.summary}`
 
   // Check if entry for this date already exists
-  const existing = await notion.databases.query({
-    database_id: DATABASE_ID,
-    filter: { property: 'Date', title: { equals: content.date } },
+  const searchRes = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}/query`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      filter: { property: 'Date', title: { equals: content.date } },
+    }),
   })
+  const searchData = await searchRes.json()
+  const existingId = searchData.results?.[0]?.id
 
   const properties = {
     Date: { title: [{ text: { content: content.date } }] },
@@ -39,9 +43,17 @@ export async function syncToNotion(content: DailyReadingContent): Promise<void> 
     },
   }
 
-  if (existing.results.length > 0) {
-    await notion.pages.update({ page_id: existing.results[0].id, properties })
+  if (existingId) {
+    await fetch(`https://api.notion.com/v1/pages/${existingId}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ properties }),
+    })
   } else {
-    await notion.pages.create({ parent: { database_id: DATABASE_ID }, properties })
+    await fetch('https://api.notion.com/v1/pages', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ parent: { database_id: DATABASE_ID }, properties }),
+    })
   }
 }
