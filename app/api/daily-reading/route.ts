@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma'
+import { getReading } from '@/lib/store'
 import type { DailyReadingContent } from '@/lib/daily-reading/types'
 
 export const dynamic = 'force-dynamic'
@@ -6,10 +6,9 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   const today = new Date().toISOString().split('T')[0]
 
-  let record = await prisma.dailyReading.findUnique({ where: { date: today } })
+  let entry = getReading(today)
 
-  if (!record) {
-    // Auto-generate if missing
+  if (!entry) {
     try {
       const base = process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000'
       await fetch(`${base}/api/daily-reading/generate`, {
@@ -17,16 +16,16 @@ export async function GET() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       })
-      record = await prisma.dailyReading.findUnique({ where: { date: today } })
+      entry = getReading(today)
     } catch {
-      // ignore — caller handles null
+      // ignore
     }
   }
 
-  if (!record) {
+  if (!entry) {
     return Response.json({ error: 'No content available' }, { status: 404 })
   }
 
-  const content: DailyReadingContent = JSON.parse(record.content)
+  const content: DailyReadingContent = entry.content
   return Response.json(content)
 }

@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { prisma } from '@/lib/prisma'
+import { getReading, saveReading, getRecentUsedLinks } from '@/lib/store'
 import { fetchAllFeeds } from '@/lib/daily-reading/rss-fetcher'
 import { buildGenerationPrompt } from '@/lib/daily-reading/prompt'
 import { syncToNotion } from '@/lib/daily-reading/notion-sync'
@@ -14,20 +14,11 @@ export async function POST(request: Request) {
 
   const today = new Date().toISOString().split('T')[0]
 
-  if (!force) {
-    const existing = await prisma.dailyReading.findUnique({ where: { date: today } })
-    if (existing) {
-      return Response.json({ status: 'already_exists', date: today })
-    }
+  if (!force && getReading(today)) {
+    return Response.json({ status: 'already_exists', date: today })
   }
 
-  // Collect URLs used in the last 14 days to avoid repeating stories
-  const past = await prisma.dailyReading.findMany({
-    where: { date: { gte: new Date(Date.now() - 14 * 86400000).toISOString().split('T')[0] } },
-    select: { usedLinks: true },
-  })
-  const excludeLinks = past.flatMap((r) => JSON.parse(r.usedLinks) as string[])
-
+  const excludeLinks = getRecentUsedLinks(14)
   const feeds = await fetchAllFeeds()
   const prompt = buildGenerationPrompt(today, feeds, excludeLinks)
 
@@ -44,7 +35,6 @@ export async function POST(request: Request) {
     .map((b) => (b as { type: 'text'; text: string }).text)
     .join('')
 
-  // Extract JSON — handle case where Claude wraps in markdown fences
   const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/) ?? null
   const jsonStr = jsonMatch ? jsonMatch[1].trim() : rawText.trim()
 
@@ -55,7 +45,6 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Failed to parse Claude response', raw: rawText.slice(0, 500) }, { status: 500 })
   }
 
-  // Extract all URLs from generated content for deduplication in future runs
   const usedLinks = [
     ...content.whatsHappening.world.sources.map((s) => s.url),
     ...content.whatsHappening.india.sources.map((s) => s.url),
@@ -66,13 +55,9 @@ export async function POST(request: Request) {
     ...content.publicCompanyOfDay.sources.map((s) => s.url),
   ].filter(Boolean)
 
-  await prisma.dailyReading.upsert({
-    where: { date: today },
-    update: { content: JSON.stringify(content), usedLinks: JSON.stringify(usedLinks) },
-    create: { date: today, content: JSON.stringify(content), usedLinks: JSON.stringify(usedLinks) },
-  })
+  saveReading(today, content, usedLinks)
 
-  // Sync to Notion archive (non-blocking — don't fail generation if Notion is down)
+  // Sync to Notion archive (non-blocking)
   syncToNotion(content).catch((e) => console.warn('Notion sync failed:', e.message))
 
   return Response.json({ status: 'generated', date: today })
